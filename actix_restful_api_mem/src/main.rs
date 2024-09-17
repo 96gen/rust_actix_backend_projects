@@ -1,101 +1,11 @@
-use actix_web::{web, App, HttpServer, Responder, HttpResponse};
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use actix_web::{web, App, HttpServer};
+use state::AppState;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-//賦予User特性
-//Serialize提供序列化功能，可以將User轉換為JSON、XML等格式
-//Deserialize提供反序列化功能，可以將JSON、XML等格式轉換為User
-//Clone允許User可以使用.clone()複製
-#[derive(Serialize, Deserialize, Clone)]
-//建立User
-struct User {
-    id: Uuid, //使用UUID作為primary key
-    name: String, //名稱
-    email: String, //電子郵件
-}
-
-#[derive(Serialize,Deserialize)]
-//建立UserDTO，用來接收前端傳來的資料
-struct UserDTO {
-    name: String,
-    email: String,
-}
-
-//建立AppState，用來儲存User的資料
-struct AppState {
-    //Mutex允許多執行緒存取同一個資料，並且在同一時間只能有一個執行緒存取同一個資料
-    users: Mutex<HashMap<Uuid, User>>,
-}
-
-//新增user的功能
-async fn create_user(state: web::Data<AppState>, user: web::Json<UserDTO>) -> impl Responder {
-    let new_user = User {
-        id: Uuid::new_v4(), //產生一個新的UUID
-        name: user.name.clone(),
-        email: user.email.clone(),
-    };
-    //lock取得users的讀寫權，可以得到Result
-    //unwrap從Result中取得值，如果Result是Error，會發生panic，讓程式終止
-    //insert新增資料
-    state.users.lock().unwrap().insert(new_user.id, new_user.clone());
-
-    //回應剛剛新增的資料
-    HttpResponse::Created().json(new_user)
-}
-
-//取得所有user的功能
-async fn get_users(state: web::Data<AppState>) -> impl Responder {
-    let users = state.users.lock().unwrap();
-    //values取得users的所有資料
-    //cloned將users的值全都複製一份
-    //collect將cloned的值全都轉換為Vec
-    let users_list: Vec<User> = users.values().cloned().collect();
-
-    //回應剛剛取得的資料
-    HttpResponse::Ok().json(users_list)
-}
-
-//取得單一user的功能
-async fn get_user(state: web::Data<AppState>, user_id: web::Path<Uuid>) -> impl Responder {
-    let users = state.users.lock().unwrap();
-    //let Some(user)，用來確認Option是否有值，如果有值就回傳Some，並將值傳給user，沒有就回傳None
-    //users.get(&user_id)，根據user_id來取得對應的user，如果有值就回傳Option<&User>，沒有就回傳None
-    if let Some(user) = users.get(&user_id) {
-        HttpResponse::Ok().json(user)
-    } else {
-        HttpResponse::NotFound().body("User not found")
-    }
-}
-
-//更新單一user的功能
-async fn update_user(
-    state: web::Data<AppState>,
-    user_id: web::Path<Uuid>,
-    user_data: web::Json<UserDTO>,
-) -> impl Responder {
-    let mut users = state.users.lock().unwrap();
-    if let Some(user) = users.get_mut(&user_id) {
-        user.name = user_data.name.clone();
-        user.email = user_data.email.clone();
-        HttpResponse::Ok().json(user)
-    } else {
-        HttpResponse::NotFound().body("User not found")
-    }
-}
-
-//刪除單一user的功能
-async fn delete_user(state: web::Data<AppState>, user_id: web::Path<Uuid>) -> impl Responder {
-    let mut users = state.users.lock().unwrap();
-    //remove刪除資料，並回傳Option
-    //is_some判斷Option是否有值，有值就回傳true，沒有就回傳false
-    if users.remove(&user_id).is_some() {
-        HttpResponse::Ok().body("User deleted")
-    } else {
-        HttpResponse::NotFound().body("User not found")
-    }
-}
+mod models;
+mod state;
+mod handlers;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -109,11 +19,11 @@ async fn main() -> std::io::Result<()> {
         App::new()
             //讓子程式共享app_state
             .app_data(app_state.clone())
-            .route("/users", web::post().to(create_user))
-            .route("/users", web::get().to(get_users))
-            .route("/users/{id}", web::get().to(get_user))
-            .route("/users/{id}", web::put().to(update_user))
-            .route("/users/{id}", web::delete().to(delete_user))
+            .route("/users", web::post().to(handlers::create_user))
+            .route("/users", web::get().to(handlers::get_users))
+            .route("/users/{id}", web::get().to(handlers::get_user))
+            .route("/users/{id}", web::put().to(handlers::update_user))
+            .route("/users/{id}", web::delete().to(handlers::delete_user))
     })
     .bind("127.0.0.1:8080")?
     .run()
@@ -126,6 +36,7 @@ mod tests {
     use actix_web::test;
     use actix_web::http::StatusCode;
     use actix_web::dev::ServiceResponse;
+    use crate::models::{User, UserDTO};
 
     //測試POST /users
     #[actix_web::test]
@@ -137,7 +48,7 @@ mod tests {
         let app = test::init_service(
             App::new()
                 .app_data(app_state.clone())
-                .route("/users", web::post().to(create_user))
+                .route("/users", web::post().to(handlers::create_user))
         ).await;
 
         let new_user = UserDTO {
@@ -167,8 +78,8 @@ mod tests {
         let app = test::init_service(
             App::new()
                 .app_data(app_state.clone())
-                .route("/users", web::post().to(create_user))
-                .route("/users", web::get().to(get_users))
+                .route("/users", web::post().to(handlers::create_user))
+                .route("/users", web::get().to(handlers::get_users))
         ).await;
         //先新增一個user，用來測試
         let new_user = UserDTO {
@@ -204,8 +115,8 @@ mod tests {
         let app = test::init_service(
             App::new()
                 .app_data(app_state.clone())
-                .route("/users", web::post().to(create_user))
-                .route("/users/{id}", web::get().to(get_user))
+                .route("/users", web::post().to(handlers::create_user))
+                .route("/users/{id}", web::get().to(handlers::get_user))
         ).await;
         //先新增一個user，用來測試
         let new_user = UserDTO {
@@ -243,8 +154,8 @@ mod tests {
         let app = test::init_service(
             App::new()
                 .app_data(app_state.clone())
-                .route("/users", web::post().to(create_user))
-                .route("/users/{id}", web::put().to(update_user))
+                .route("/users", web::post().to(handlers::create_user))
+                .route("/users/{id}", web::put().to(handlers::update_user))
         ).await;
         //先新增一個user，用來測試
         let new_user = UserDTO {
@@ -289,8 +200,8 @@ mod tests {
         let app = test::init_service(
             App::new()
                 .app_data(app_state.clone())
-                .route("/users", web::post().to(create_user))
-                .route("/users/{id}", web::delete().to(delete_user))
+                .route("/users", web::post().to(handlers::create_user))
+                .route("/users/{id}", web::delete().to(handlers::delete_user))
         ).await;
         //先新增一個user，用來測試
         let new_user = UserDTO {
