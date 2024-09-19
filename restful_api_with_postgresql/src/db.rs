@@ -1,4 +1,4 @@
-use deadpool_postgres::Pool;
+use deadpool_postgres::{Manager, Pool};
 use tokio_postgres::{NoTls};
 use dotenv::dotenv;
 use std::env;
@@ -13,9 +13,9 @@ pub fn create_pool() -> Pool {
     //將db_url轉換成Config的資料型態
     let config = db_url.parse().unwrap();
     //建立連接管理器，NoTls表示不使用TLS
-    let manager = deadpool_postgres::Manager::new(config, NoTls);
+    let manager = Manager::new(config, NoTls);
     //建立連接池
-    deadpool_postgres::Pool::builder(manager)
+    Pool::builder(manager)
         //最大連接數為16
         .max_size(16)
         .build()

@@ -1,5 +1,6 @@
 use actix_web::{web, Responder, HttpResponse};
 use deadpool_postgres::{Client, Pool};
+use tokio_postgres::Statement;
 
 use crate::models::{Todo, TodoDTO};
 
@@ -10,7 +11,7 @@ async fn get_db_client(pool: &Pool) -> Result<Client, HttpResponse> {
         .map_err(|_| HttpResponse::InternalServerError().body("Failed to get database connection"))
 }
 
-async fn prepare_sql(client: &Client, query: &str) -> Result<tokio_postgres::Statement, HttpResponse> {
+async fn prepare_sql(client: &Client, query: &str) -> Result<Statement, HttpResponse> {
     //準備SQL語句
     client.prepare(query).await.map_err(|_| HttpResponse::InternalServerError().body("Failed to prepare SQL statement"))
 }
